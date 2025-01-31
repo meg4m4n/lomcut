@@ -1,36 +1,31 @@
-export interface Client {
-  name: string;
-  brand: string;
+// Add these new types to the existing types.ts file
+export interface Point {
+  x: number;
+  y: number;
 }
 
-export interface Material {
-  name: string;
-  supplier: string;
-  color: string;
-  width: number;
-  dxfFile?: File;
-  pdfFile?: File;
+export interface PathSegment {
+  start: Point;
+  end: Point;
 }
 
-export type ProtoType = '1st proto' | '2nd proto' | '3rd proto' | 'size-set' | 'production';
-
-export interface CutDetails {
+export interface VectorPath {
   id: string;
-  client: Client;
-  orderDate: string;
-  deadline: string;
-  modelReference: string;
-  description: string;
-  gender: 'male' | 'female' | 'unisex';
-  type: ProtoType;
-  projectLink: string;
-  status: 'pending' | 'in-progress' | 'completed';
-  materials: Material[];
-  sizes: Record<string, number>; // size -> quantity
+  segments: PathSegment[];
+  isOpen: boolean;
+  repairs: PathRepair[];
+  status: 'uncut' | 'cut' | 'defect';
 }
 
+export interface PathRepair {
+  start: Point;
+  end: Point;
+  distance: number;
+}
+
+// Update the existing PieceStatus type
 export interface PieceStatus {
   id: string;
-  status: 'cut' | 'defect' | 'pending';
+  status: 'cut' | 'defect' | 'uncut';
   notes: string;
 }
