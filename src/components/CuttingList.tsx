@@ -16,6 +16,19 @@ export function CuttingList({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
+  const getStatusInPortuguese = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'Pendente';
+      case 'in-progress':
+        return 'Em Produção';
+      case 'completed':
+        return 'Concluído';
+      default:
+        return status;
+    }
+  };
+
   const filteredCuts = cuts.filter((cut) => {
     const matchesSearch =
       cut.modelReference.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -50,7 +63,7 @@ export function CuttingList({
             <option value="all">Filtrar Estados</option>
             <option value="pending">Pendente</option>
             <option value="in-progress">Em Produção</option>
-            <option value="completed">Completo</option>
+            <option value="completed">Concluído</option>
           </select>
         </div>
       </div>
@@ -67,6 +80,9 @@ export function CuttingList({
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Data
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Tipologia
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Estado
@@ -104,6 +120,9 @@ export function CuttingList({
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
+                  <span className="text-sm text-gray-900">{cut.type}</span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
                   <span
                     className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full
                     ${
@@ -114,7 +133,7 @@ export function CuttingList({
                         : 'bg-gray-100 text-gray-800'
                     }`}
                   >
-                    {cut.status}
+                    {getStatusInPortuguese(cut.status)}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
