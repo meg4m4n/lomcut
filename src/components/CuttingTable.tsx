@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Plus,
   Upload,
@@ -28,10 +28,12 @@ export function CuttingTable({
   onAddMaterial,
   onUpdateSizes,
 }: CuttingTableProps) {
-  const [sizes, setSizes] = useState<Record<string, number>>({});
   const [editingId, setEditingId] = useState<number | null>(null);
   const [newMaterial, setNewMaterial] = useState<boolean>(false);
-  const [newSize, setNewSize] = useState<string>('');
+  const [sizes, setSizes] = useState<string[]>([]);
+  const [newSize, setNewSize] = useState('');
+  const [editingSize, setEditingSize] = useState<{index: number, value: string} | null>(null);
+  const [materialSizes, setMaterialSizes] = useState<Record<string, Record<string, number>>>({});
   const [editForm, setEditForm] = useState<MaterialFormData>({
     name: '',
     supplier: '',
@@ -41,31 +43,70 @@ export function CuttingTable({
   const [dxfFile, setDxfFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
 
-  // Update sizes when a size quantity changes
-  const handleSizeQuantityChange = (size: string, value: string) => {
+  const handleSizeQuantityChange = (materialId: string, size: string, value: string) => {
     const quantity = parseInt(value) || 0;
-    const newSizes = {
-      ...sizes,
-      [size]: quantity,
-    };
-    setSizes(newSizes);
-    onUpdateSizes(newSizes);
+    setMaterialSizes(prev => ({
+      ...prev,
+      [materialId]: {
+        ...prev[materialId],
+        [size]: quantity,
+      },
+    }));
+    onUpdateSizes(materialSizes[materialId] || {});
   };
 
-  const handleAddSize = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && newSize.trim()) {
-      const updatedSizes = { ...sizes, [newSize.trim()]: 0 };
+  const handleAddSize = () => {
+    if (newSize.trim() && !sizes.includes(newSize.trim())) {
+      const updatedSizes = [...sizes, newSize.trim()];
       setSizes(updatedSizes);
-      onUpdateSizes(updatedSizes);
+      
+      // Initialize the new size with 0 quantity for all materials
+      const updatedMaterialSizes = { ...materialSizes };
+      Object.keys(updatedMaterialSizes).forEach(materialId => {
+        updatedMaterialSizes[materialId] = {
+          ...updatedMaterialSizes[materialId],
+          [newSize.trim()]: 0,
+        };
+      });
+      setMaterialSizes(updatedMaterialSizes);
       setNewSize('');
     }
   };
 
-  const handleRemoveSize = (sizeToRemove: string) => {
-    const newSizes = { ...sizes };
-    delete newSizes[sizeToRemove];
-    setSizes(newSizes);
-    onUpdateSizes(newSizes);
+  const handleEditSize = (index: number, newValue: string) => {
+    if (newValue.trim() && !sizes.includes(newValue.trim())) {
+      const oldSize = sizes[index];
+      const updatedSizes = [...sizes];
+      updatedSizes[index] = newValue.trim();
+      setSizes(updatedSizes);
+
+      // Update the size key in all materials
+      const updatedMaterialSizes = { ...materialSizes };
+      Object.keys(updatedMaterialSizes).forEach(materialId => {
+        const quantity = updatedMaterialSizes[materialId][oldSize] || 0;
+        const { [oldSize]: _, ...rest } = updatedMaterialSizes[materialId];
+        updatedMaterialSizes[materialId] = {
+          ...rest,
+          [newValue.trim()]: quantity,
+        };
+      });
+      setMaterialSizes(updatedMaterialSizes);
+      setEditingSize(null);
+    }
+  };
+
+  const handleRemoveSize = (index: number) => {
+    const sizeToRemove = sizes[index];
+    const updatedSizes = sizes.filter((_, i) => i !== index);
+    setSizes(updatedSizes);
+
+    // Remove the size from all materials
+    const updatedMaterialSizes = { ...materialSizes };
+    Object.keys(updatedMaterialSizes).forEach(materialId => {
+      const { [sizeToRemove]: _, ...rest } = updatedMaterialSizes[materialId];
+      updatedMaterialSizes[materialId] = rest;
+    });
+    setMaterialSizes(updatedMaterialSizes);
   };
 
   const handleInputChange = (
@@ -102,11 +143,22 @@ export function CuttingTable({
   };
 
   const handleSave = (index?: number) => {
+    const materialId = Date.now().toString();
     const newMaterial: Material = {
       ...editForm,
       dxfFile,
       pdfFile,
     };
+    
+    // Initialize sizes for the new material
+    setMaterialSizes(prev => ({
+      ...prev,
+      [materialId]: sizes.reduce((acc, size) => ({
+        ...acc,
+        [size]: 0,
+      }), {}),
+    }));
+
     onAddMaterial(newMaterial);
     setNewMaterial(false);
     setEditForm({
@@ -120,13 +172,13 @@ export function CuttingTable({
     setEditingId(null);
   };
 
-  const handleDelete = (index: number) => {
-    const updatedMaterials = materials.filter((_, i) => i !== index);
-    // Update materials through parent
-    // onUpdateMaterials(updatedMaterials);
+  const handleDelete = (materialId: string) => {
+    const { [materialId]: _, ...rest } = materialSizes;
+    setMaterialSizes(rest);
   };
 
   const renderEditableRow = (material: Material, index: number) => {
+    const materialId = index.toString();
     const isEditing = editingId === index;
 
     if (!isEditing) {
@@ -158,14 +210,13 @@ export function CuttingTable({
               )}
             </div>
           </td>
-          {Object.keys(sizes).map((size) => (
+          {sizes.map((size) => (
             <td key={size} className="px-6 py-4 whitespace-nowrap">
               <input
                 type="number"
                 min="0"
-                value={sizes[size]}
-                onChange={(e) => handleSizeQuantityChange(size, e.target.value)}
-                onBlur={(e) => handleSizeQuantityChange(size, e.target.value)}
+                value={materialSizes[materialId]?.[size] || 0}
+                onChange={(e) => handleSizeQuantityChange(materialId, size, e.target.value)}
                 className="w-16 px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </td>
@@ -179,7 +230,7 @@ export function CuttingTable({
                 <Edit2 className="h-5 w-5" />
               </button>
               <button
-                onClick={() => handleDelete(index)}
+                onClick={() => handleDelete(materialId)}
                 className="text-red-600 hover:text-red-800"
               >
                 <Trash2 className="h-5 w-5" />
@@ -260,14 +311,13 @@ export function CuttingTable({
             </label>
           </div>
         </td>
-        {Object.keys(sizes).map((size) => (
+        {sizes.map((size) => (
           <td key={size} className="px-6 py-4 whitespace-nowrap">
             <input
               type="number"
               min="0"
-              value={sizes[size]}
-              onChange={(e) => handleSizeQuantityChange(size, e.target.value)}
-              onBlur={(e) => handleSizeQuantityChange(size, e.target.value)}
+              value={materialSizes[materialId]?.[size] || 0}
+              onChange={(e) => handleSizeQuantityChange(materialId, size, e.target.value)}
               className="w-16 px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </td>
@@ -324,33 +374,81 @@ export function CuttingTable({
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Ficheiros
               </th>
-              {Object.entries(sizes).map(([size]) => (
+              {sizes.map((size, index) => (
                 <th
                   key={size}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider group relative"
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
                 >
-                  <div className="flex items-center">
-                    <span>{size}</span>
-                    <button
-                      onClick={() => handleRemoveSize(size)}
-                      className="ml-2 text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
+                  {editingSize?.index === index ? (
+                    <div className="flex items-center space-x-1">
+                      <input
+                        type="text"
+                        value={editingSize.value}
+                        onChange={(e) => setEditingSize({ index, value: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleEditSize(index, editingSize.value);
+                          } else if (e.key === 'Escape') {
+                            setEditingSize(null);
+                          }
+                        }}
+                        className="w-16 px-1 py-0.5 text-xs border rounded"
+                        autoFocus
+                      />
+                      <div className="flex space-x-1">
+                        <button
+                          onClick={() => handleEditSize(index, editingSize.value)}
+                          className="text-green-600 hover:text-green-800"
+                        >
+                          <Check className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => setEditingSize(null)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center group">
+                      <span
+                        className="cursor-pointer hover:text-blue-600"
+                        onClick={() => setEditingSize({ index, value: size })}
+                      >
+                        {size}
+                      </span>
+                      <button
+                        onClick={() => handleRemoveSize(index)}
+                        className="ml-2 text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
                 </th>
               ))}
-              <th className="px-6 py-3 relative">
-                <div className="flex items-center space-x-2">
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <div className="flex items-center space-x-1">
                   <input
                     type="text"
                     value={newSize}
                     onChange={(e) => setNewSize(e.target.value)}
-                    onKeyDown={handleAddSize}
-                    placeholder="Adicionar Tamanho..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleAddSize();
+                      }
+                    }}
+                    placeholder="Novo tamanho"
                     className="w-20 px-2 py-1 text-xs border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                  <Plus className="h-4 w-4 text-blue-600" />
+                  <button
+                    onClick={handleAddSize}
+                    className="text-blue-600 hover:text-blue-800"
+                    disabled={!newSize.trim()}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
                 </div>
               </th>
             </tr>
@@ -436,17 +534,14 @@ export function CuttingTable({
                     </label>
                   </div>
                 </td>
-                {Object.keys(sizes).map((size) => (
+                {sizes.map((size) => (
                   <td key={size} className="px-6 py-4 whitespace-nowrap">
                     <input
                       type="number"
                       min="0"
-                      value={sizes[size]}
+                      value={0}
                       onChange={(e) =>
-                        handleSizeQuantityChange(size, e.target.value)
-                      }
-                      onBlur={(e) =>
-                        handleSizeQuantityChange(size, e.target.value)
+                        handleSizeQuantityChange('new', size, e.target.value)
                       }
                       className="w-16 px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
