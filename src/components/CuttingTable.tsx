@@ -23,7 +23,9 @@ interface MaterialFormData {
   supplier: string;
   color: string;
   width: number;
-  sizes: Record<string, number>; // Add sizes to the form data
+  sizes: Record<string, number>;
+  dxfFile: File | null;
+  pdfFile: File | null;
 }
 
 export function CuttingTable({
@@ -32,18 +34,19 @@ export function CuttingTable({
   onUpdateSizes,
 }: CuttingTableProps) {
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [newMaterial, setNewMaterial] = useState<boolean>(false);
+  const [newMaterial, setNewMaterial] = useState<boolean>(true);
   const [editForm, setEditForm] = useState<MaterialFormData>({
     name: '',
     supplier: '',
     color: '',
     width: 0,
-    sizes: {}, // Initialize sizes in form data
+    sizes: {},
+    dxfFile: null,
+    pdfFile: null,
   });
-  const [dxfFile, setDxfFile] = useState<File | null>(null);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   const [newSize, setNewSize] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const handleSizeQuantityChange = (
     materialId: string | null,
@@ -91,18 +94,16 @@ export function CuttingTable({
   ) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (type === 'dxf') {
-        if (isEditing && editingMaterial) {
-          setEditingMaterial({ ...editingMaterial, dxfFile: file });
-        } else {
-          setDxfFile(file);
-        }
+      if (isEditing && editingMaterial) {
+        setEditingMaterial(prev => ({
+          ...prev!,
+          [type === 'dxf' ? 'dxfFile' : 'pdfFile']: file,
+        }));
       } else {
-        if (isEditing && editingMaterial) {
-          setEditingMaterial({ ...editingMaterial, pdfFile: file });
-        } else {
-          setPdfFile(file);
-        }
+        setEditForm(prev => ({
+          ...prev,
+          [type === 'dxf' ? 'dxfFile' : 'pdfFile']: file,
+        }));
       }
     }
   };
@@ -113,23 +114,31 @@ export function CuttingTable({
     }
 
     const newMaterialData: Material = {
-      ...editForm,
-      dxfFile,
-      pdfFile,
+      name: editForm.name,
+      supplier: editForm.supplier,
+      color: editForm.color,
+      width: editForm.width,
+      dxfFile: editForm.dxfFile,
+      pdfFile: editForm.pdfFile,
+      sizes: editForm.sizes,
     };
     
     onAddMaterial(newMaterialData);
     
-    // Reset form but keep the material creation form visible
+    // Show success feedback
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2000);
+
+    // Reset form fields but keep the form visible and preserve sizes
     setEditForm({
       name: '',
       supplier: '',
       color: '',
       width: 0,
-      sizes: editForm.sizes, // Keep the sizes
+      sizes: editForm.sizes,
+      dxfFile: null,
+      pdfFile: null,
     });
-    setDxfFile(null);
-    setPdfFile(null);
   };
 
   const handleUpdate = (index: number) => {
@@ -148,7 +157,6 @@ export function CuttingTable({
   };
 
   const handleDelete = (index: number) => {
-    // Update sizes after deletion
     const updatedMaterials = materials.filter((_, i) => i !== index);
     const totalSizes: Record<string, number> = {};
     
@@ -162,16 +170,16 @@ export function CuttingTable({
   };
 
   const resetForm = () => {
-    setNewMaterial(false);
+    setNewMaterial(true);
     setEditForm({
       name: '',
       supplier: '',
       color: '',
       width: 0,
-      sizes: {}, // Reset sizes
+      sizes: {},
+      dxfFile: null,
+      pdfFile: null,
     });
-    setDxfFile(null);
-    setPdfFile(null);
     setEditingId(null);
     setEditingMaterial(null);
   };
@@ -191,15 +199,6 @@ export function CuttingTable({
     <div className="bg-white rounded-lg shadow-md p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Detalhes do Corte</h2>
-        {!newMaterial && !editingId && (
-          <button
-            onClick={() => setNewMaterial(true)}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <Plus className="h-5 w-5 mr-2" />
-            Adicionar Corte
-          </button>
-        )}
       </div>
       
       <div className="overflow-x-auto">
@@ -230,7 +229,7 @@ export function CuttingTable({
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {newMaterial && (
+            {newMaterial && !editingId && (
               <tr className="bg-blue-50">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <input
@@ -280,34 +279,42 @@ export function CuttingTable({
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex gap-2">
-                    <input
-                      type="file"
-                      accept=".dxf"
-                      onChange={(e) => handleFileChange(e, 'dxf')}
-                      className="hidden"
-                      id="new-dxf-file"
-                    />
-                    <label
-                      htmlFor="new-dxf-file"
-                      className="flex items-center px-2 py-1 border rounded text-sm cursor-pointer hover:bg-gray-50"
-                    >
-                      <Upload className="h-4 w-4 mr-1" />
-                      DXF
-                    </label>
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      onChange={(e) => handleFileChange(e, 'pdf')}
-                      className="hidden"
-                      id="new-pdf-file"
-                    />
-                    <label
-                      htmlFor="new-pdf-file"
-                      className="flex items-center px-2 py-1 border rounded text-sm cursor-pointer hover:bg-gray-50"
-                    >
-                      <Upload className="h-4 w-4 mr-1" />
-                      PDF
-                    </label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="file"
+                        accept=".dxf"
+                        onChange={(e) => handleFileChange(e, 'dxf')}
+                        className="hidden"
+                        id="new-dxf-file"
+                      />
+                      <label
+                        htmlFor="new-dxf-file"
+                        className={`flex items-center px-2 py-1 border rounded text-sm cursor-pointer hover:bg-gray-50 ${
+                          editForm.dxfFile ? 'bg-green-100 border-green-500' : ''
+                        }`}
+                      >
+                        <Upload className="h-4 w-4 mr-1" />
+                        DXF {editForm.dxfFile ? '✓' : ''}
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="file"
+                        accept=".pdf"
+                        onChange={(e) => handleFileChange(e, 'pdf')}
+                        className="hidden"
+                        id="new-pdf-file"
+                      />
+                      <label
+                        htmlFor="new-pdf-file"
+                        className={`flex items-center px-2 py-1 border rounded text-sm cursor-pointer hover:bg-gray-50 ${
+                          editForm.pdfFile ? 'bg-green-100 border-green-500' : ''
+                        }`}
+                      >
+                        <Upload className="h-4 w-4 mr-1" />
+                        PDF {editForm.pdfFile ? '✓' : ''}
+                      </label>
+                    </div>
                   </div>
                 </td>
                 <td className="px-6 py-4">
@@ -382,16 +389,12 @@ export function CuttingTable({
                   <div className="flex justify-end space-x-2">
                     <button
                       onClick={handleSave}
-                      className="text-green-600 hover:text-green-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className={`text-green-600 hover:text-green-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
+                        saveSuccess ? 'text-green-800 bg-green-100 rounded-full p-1' : ''
+                      }`}
                       disabled={!editForm.name || !editForm.supplier || !editForm.color || !editForm.width}
                     >
-                      <Check className="h-5 w-5" />
-                    </button>
-                    <button
-                      onClick={resetForm}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <X className="h-5 w-5" />
+                      <Check className={`h-5 w-5 ${saveSuccess ? 'animate-bounce' : ''}`} />
                     </button>
                   </div>
                 </td>
@@ -460,34 +463,42 @@ export function CuttingTable({
                 <td className="px-6 py-4 whitespace-nowrap">
                   {editingId === index ? (
                     <div className="flex gap-2">
-                      <input
-                        type="file"
-                        accept=".dxf"
-                        onChange={(e) => handleFileChange(e, 'dxf', true)}
-                        className="hidden"
-                        id={`edit-dxf-file-${index}`}
-                      />
-                      <label
-                        htmlFor={`edit-dxf-file-${index}`}
-                        className="flex items-center px-2 py-1 border rounded text-sm cursor-pointer hover:bg-gray-50"
-                      >
-                        <Upload className="h-4 w-4 mr-1" />
-                        DXF
-                      </label>
-                      <input
-                        type="file"
-                        accept=".pdf"
-                        onChange={(e) => handleFileChange(e, 'pdf', true)}
-                        className="hidden"
-                        id={`edit-pdf-file-${index}`}
-                      />
-                      <label
-                        htmlFor={`edit-pdf-file-${index}`}
-                        className="flex items-center px-2 py-1 border rounded text-sm cursor-pointer hover:bg-gray-50"
-                      >
-                        <Upload className="h-4 w-4 mr-1" />
-                        PDF
-                      </label>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="file"
+                          accept=".dxf"
+                          onChange={(e) => handleFileChange(e, 'dxf', true)}
+                          className="hidden"
+                          id={`edit-dxf-file-${index}`}
+                        />
+                        <label
+                          htmlFor={`edit-dxf-file-${index}`}
+                          className={`flex items-center px-2 py-1 border rounded text-sm cursor-pointer hover:bg-gray-50 ${
+                            editingMaterial?.dxfFile ? 'bg-green-100 border-green-500' : ''
+                          }`}
+                        >
+                          <Upload className="h-4 w-4 mr-1" />
+                          DXF {editingMaterial?.dxfFile ? '✓' : ''}
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="file"
+                          accept=".pdf"
+                          onChange={(e) => handleFileChange(e, 'pdf', true)}
+                          className="hidden"
+                          id={`edit-pdf-file-${index}`}
+                        />
+                        <label
+                          htmlFor={`edit-pdf-file-${index}`}
+                          className={`flex items-center px-2 py-1 border rounded text-sm cursor-pointer hover:bg-gray-50 ${
+                            editingMaterial?.pdfFile ? 'bg-green-100 border-green-500' : ''
+                          }`}
+                        >
+                          <Upload className="h-4 w-4 mr-1" />
+                          PDF {editingMaterial?.pdfFile ? '✓' : ''}
+                        </label>
+                      </div>
                     </div>
                   ) : (
                     <div className="flex space-x-2">
