@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Scissors, Plus } from 'lucide-react';
+import { Scissors, Plus, ArrowRight } from 'lucide-react';
 import { CuttingList } from './components/CuttingList';
 import { CutDetails } from './components/CutDetails';
 import { CuttingTable } from './components/CuttingTable';
 import { CutRegistration } from './components/CutRegistration';
 import { LabelPrinting } from './components/LabelPrinting';
+import { Converter } from './components/Converter';
 import type { CutDetails as ICutDetails, Material, PieceStatus } from './types';
 
 // Sample data
@@ -33,6 +34,9 @@ function App() {
   const [selectedCut, setSelectedCut] = useState<ICutDetails | null>(null);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [sizes, setSizes] = useState<Record<string, number>>({});
+
+  // Check if we're on the converter page
+  const isConverterPage = window.location.pathname === '/converter';
 
   const handleAddCut = () => {
     const newCut: ICutDetails = {
@@ -96,6 +100,10 @@ function App() {
     console.log('Updating piece status:', pieceId, status);
   };
 
+  if (isConverterPage) {
+    return <Converter />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-white shadow-sm">
@@ -107,15 +115,24 @@ function App() {
                 Lomartex - Gestão de Corte
               </h1>
             </div>
-            {!selectedCut && (
-              <button
-                onClick={handleAddCut}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
+            <div className="flex items-center gap-4">
+              <a
+                href="/converter"
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center"
               >
-                <Plus className="h-5 w-5 mr-2" />
-                New Cut
-              </button>
-            )}
+                CONVERTER
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </a>
+              {!selectedCut && (
+                <button
+                  onClick={handleAddCut}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
+                >
+                  <Plus className="h-5 w-5 mr-2" />
+                  New Cut
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -155,4 +172,5 @@ function App() {
     </div>
   );
 }
+
 export default App;
