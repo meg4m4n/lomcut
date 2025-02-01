@@ -1,1 +1,139 @@
+// DXFPreview.tsx
+import React from 'react';
+import type { VectorPath, PathRepair } from '../types';
 
+interface DXFPreviewProps {
+  vectorPaths: VectorPath[];
+  showRepairs: boolean;
+  onPieceClick: (path: VectorPath) => void;
+}
+
+export const DXFPreview: React.FC<DXFPreviewProps> = ({
+  vectorPaths,
+  showRepairs,
+  onPieceClick,
+}) => {
+  // Converts a vector path (array of segments) into an SVG path string.
+  const pathToSvgPath = (path: VectorPath): string => {
+    if (path.segments.length === 0) return '';
+    let d = `M ${path.segments[0].start.x} ${path.segments[0].start.y}`;
+    path.segments.forEach((segment) => {
+      d += ` L ${segment.end.x} ${segment.end.y}`;
+    });
+    return d + ' Z';
+  };
+
+  // Calculates the viewBox string based on all vector paths.
+  const calculateViewBox = (): string => {
+    if (vectorPaths.length === 0) return '0 0 100 100';
+
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    vectorPaths.forEach((path) => {
+      path.segments.forEach((segment) => {
+        minX = Math.min(minX, segment.start.x, segment.end.x);
+        minY = Math.min(minY, segment.start.y, segment.end.y);
+        maxX = Math.max(maxX, segment.start.x, segment.end.x);
+        maxY = Math.max(maxY, segment.start.y, segment.end.y);
+      });
+    });
+    const padding = 10;
+    return `${minX - padding} ${minY - padding} ${maxX - minX + 2 * padding} ${maxY - minY + 2 * padding}`;
+  };
+
+  return (
+    <div className="border rounded-lg p-4">
+      <h3 className="text-lg font-medium mb-4">Pré-visualização do Corte</h3>
+      <div className="relative w-full" style={{ paddingBottom: '75%' }}>
+        {vectorPaths.length > 0 ? (
+          <svg
+            className="absolute inset-0 w-full h-full border rounded bg-gray-50"
+            viewBox={calculateViewBox()}
+            preserveAspectRatio="xMidYMid meet"
+          >
+            <defs>
+              <pattern id="hatch" patternUnits="userSpaceOnUse" width="4" height="4">
+                <path
+                  d="M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2"
+                  style={{ stroke: 'currentColor', strokeWidth: 0.5 }}
+                />
+              </pattern>
+            </defs>
+            {vectorPaths.map((path) => (
+              <g key={path.id}>
+                <path
+                  d={pathToSvgPath(path)}
+                  fill={
+                    path.status === 'uncut'
+                      ? 'url(#hatch)'
+                      : path.status === 'cut'
+                      ? 'rgba(34, 197, 94, 0.2)'
+                      : 'rgba(239, 68, 68, 0.2)'
+                  }
+                  stroke={
+                    path.isExterior
+                      ? path.status === 'cut'
+                        ? '#22C55E'
+                        : path.status === 'defect'
+                        ? '#EF4444'
+                        : '#1F2937'
+                      : '#6B7280'
+                  }
+                  strokeWidth={path.isExterior ? '2' : '1'}
+                  strokeDasharray={path.isExterior ? 'none' : '4,4'}
+                  className={`cursor-pointer transition-all duration-200 hover:opacity-80 ${
+                    path.segments.some((s) => s.type === 'notch') ? 'opacity-50' : ''
+                  }`}
+                  onClick={() => onPieceClick(path)}
+                />
+                {showRepairs &&
+                  path.repairs.map((repair: PathRepair, index) => (
+                    <g key={`repair-${index}`} className="text-yellow-500">
+                      {repair.type === 'gap' ? (
+                        <>
+                          <line
+                            x1={repair.start.x}
+                            y1={repair.start.y}
+                            x2={repair.end.x}
+                            y2={repair.end.y}
+                            strokeWidth="2"
+                            strokeDasharray="4"
+                            className="stroke-current"
+                          />
+                          <circle
+                            cx={repair.start.x}
+                            cy={repair.start.y}
+                            r="2"
+                            className="fill-current"
+                          />
+                          <circle
+                            cx={repair.end.x}
+                            cy={repair.end.y}
+                            r="2"
+                            className="fill-current"
+                          />
+                        </>
+                      ) : (
+                        <circle
+                          cx={repair.start.x}
+                          cy={repair.start.y}
+                          r="3"
+                          className="fill-current"
+                        />
+                      )}
+                    </g>
+                  ))}
+              </g>
+            ))}
+          </svg>
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-50 rounded border-2 border-dashed border-gray-300">
+            <p className="text-gray-500">Selecione o corte para ver o plano</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
