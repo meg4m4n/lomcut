@@ -19,7 +19,6 @@ interface MarkedPiece {
 
 export function PDFViewer({ file, onPieceMark }: PDFViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const [pdfDoc, setPdfDoc] = useState<any | null>(null);
   const [currentPage, setCurrentPage] = useState<any | null>(null);
   const [scale, setScale] = useState(1.5);
@@ -99,24 +98,28 @@ export function PDFViewer({ file, onPieceMark }: PDFViewerProps) {
 
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
+    
+    // Calculate position in PDF coordinates
     const x = (event.clientX - rect.left - offset.x) / scale;
     const y = (event.clientY - rect.top - offset.y) / scale;
-    const isRightClick = event.button === 2;
 
     // Check if clicking on an existing marker
-    const existingIndex = markedPieces.findIndex(piece => 
-      Math.abs(piece.x - x) < 10 / scale && Math.abs(piece.y - y) < 10 / scale
-    );
+    const existingIndex = markedPieces.findIndex(piece => {
+      const scaledX = piece.x * scale + offset.x;
+      const scaledY = piece.y * scale + offset.y;
+      return Math.abs(event.clientX - rect.left - scaledX) < 10 &&
+             Math.abs(event.clientY - rect.top - scaledY) < 10;
+    });
 
     if (existingIndex !== -1) {
-      // Remove the marker if it exists (double click behavior)
+      // Remove the marker if it exists
       setMarkedPieces(prev => prev.filter((_, i) => i !== existingIndex));
     } else {
       // Add new marker
       const newPiece = { 
-        x, 
-        y, 
-        type: isRightClick ? 'defect' : 'cut'
+        x,
+        y,
+        type: event.button === 2 ? 'defect' : 'cut'
       };
       setMarkedPieces(prev => [...prev, newPiece]);
 
@@ -128,49 +131,74 @@ export function PDFViewer({ file, onPieceMark }: PDFViewerProps) {
 
   // Draw marker function
   const drawMarker = (context: CanvasRenderingContext2D, piece: MarkedPiece) => {
-    const size = 6 * scale;
-    context.save();
+    const scaledX = piece.x * scale + offset.x;
+    const scaledY = piece.y * scale + offset.y;
+    const size = 6;
 
+    context.save();
     context.beginPath();
-    context.arc(piece.x * scale + offset.x, piece.y * scale + offset.y, size, 0, 2 * Math.PI);
+    context.arc(scaledX, scaledY, size, 0, 2 * Math.PI);
     context.fillStyle = piece.type === 'cut' ? 'rgba(34, 197, 94, 0.8)' : 'rgba(220, 38, 38, 0.8)';
     context.fill();
     context.strokeStyle = piece.type === 'cut' ? '#22C55E' : '#DC2626';
     context.lineWidth = 2;
     context.stroke();
-
     context.restore();
   };
 
-  // Zooming with scroll (Only inside the preview)
-  const handleWheelZoom = (event: React.WheelEvent<HTMLDivElement>) => {
-    // Check if the mouse is inside the container
-    if (!containerRef.current?.contains(event.target as Node)) return;
-    
-    // Stop event propagation and prevent default behavior
-    event.stopPropagation();
+  // Handle zooming
+  const handleWheelZoom = (event: WheelEvent) => {
     event.preventDefault();
+    
+    if (!canvasRef.current) return;
 
-    if (!canvasRef.current || !containerRef.current) return;
-
-    const rect = canvasRef.current.getBoundingClientRect();
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    
+    // Calculate mouse position relative to canvas
     const mouseX = event.clientX - rect.left;
     const mouseY = event.clientY - rect.top;
-    const prevScale = scale;
-    const newScale = Math.min(3, Math.max(0.5, prevScale + (event.deltaY < 0 ? 0.1 : -0.1)));
+    
+    // Calculate zoom
+    const delta = -event.deltaY;
+    const zoomFactor = delta > 0 ? 1.1 : 0.9;
+    const newScale = Math.min(Math.max(0.5, scale * zoomFactor), 3);
+    
+    // Calculate new offset to zoom towards mouse position
+    const newOffset = {
+      x: offset.x - (mouseX - offset.x) * (zoomFactor - 1),
+      y: offset.y - (mouseY - offset.y) * (zoomFactor - 1)
+    };
 
     setScale(newScale);
-
-    // Adjust offset to zoom towards mouse position
-    setOffset(prev => ({
-      x: prev.x - (mouseX - prev.x) * (newScale / prevScale - 1),
-      y: prev.y - (mouseY - prev.y) * (newScale / prevScale - 1),
-    }));
+    setOffset(newOffset);
   };
 
-  // Panning the PDF when zoomed
+  // Set up wheel event listener
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Only handle zoom if the mouse is directly over the canvas
+      const rect = canvas.getBoundingClientRect();
+      if (
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom
+      ) {
+        handleWheelZoom(e);
+      }
+    };
+
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, [scale, offset]);
+
+  // Handle panning
   const handleMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (scale > 1) {
+    if (event.button === 0) { // Only start dragging on left click
       setIsDragging(true);
       setLastMousePos({ x: event.clientX, y: event.clientY });
     }
@@ -198,22 +226,18 @@ export function PDFViewer({ file, onPieceMark }: PDFViewerProps) {
   return (
     <div 
       className="relative border overflow-hidden rounded-lg bg-gray-50" 
-      style={{ height: '600px' }} // Fixed height container
-      ref={containerRef}
-      onContextMenu={(e) => e.preventDefault()}
+      style={{ height: '600px' }}
     >
-      <div 
-        className="absolute inset-0 overflow-auto"
-        onWheel={handleWheelZoom}
-      >
+      <div className="absolute inset-0 overflow-auto">
         <canvas 
           ref={canvasRef} 
           onMouseDown={handleMouseDown} 
           onMouseMove={handleMouseMove} 
           onMouseUp={handleMouseUp} 
+          onMouseLeave={handleMouseUp}
           onClick={handleCanvasClick} 
           onContextMenu={handleCanvasClick} 
-          className="cursor-grab"
+          className={`cursor-${isDragging ? 'grabbing' : 'grab'}`}
         />
       </div>
     </div>
