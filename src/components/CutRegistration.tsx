@@ -1,18 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Check, X, MessageSquare, FileDown, AlertTriangle, PenTool as Tool, Save, Wrench } from 'lucide-react';
+import { Scissors, Plus, ArrowRight, MessageSquare, FileDown, AlertTriangle, PenTool as Tool, Save, Wrench } from 'lucide-react';
+import { PDFViewer } from './PDFViewer';
 import type { PieceStatus, Material, Point, VectorPath, PathSegment, PathRepair, ContourAnalysis } from '../types';
 
 interface CutRegistrationProps {
   materials: Material[];
   onUpdatePieceStatus: (pieceId: string, status: PieceStatus) => void;
 }
-
-// Constants for path analysis and repair
-const REPAIR_THRESHOLD = 0.1; // 0.1mm threshold for gap detection
-const MAX_REPAIR_DISTANCE = 5.0; // Maximum distance to attempt repair (5mm)
-const MIN_EXTERIOR_LENGTH = 50; // Minimum length for exterior contours (in mm)
-const MAX_NOTCH_LENGTH = 10; // Maximum length for notches (in mm)
-const CONTOUR_SIMPLIFICATION_THRESHOLD = 0.5; // mm - for removing redundant points
 
 export function CutRegistration({
   materials,
@@ -75,8 +69,8 @@ export function CutRegistration({
     const area = calculateArea(segments);
     
     return {
-      isNotch: length < MAX_NOTCH_LENGTH,
-      isInterior: length < MIN_EXTERIOR_LENGTH || area < 100, // Assuming small areas are interior details
+      isNotch: length < 10, // Maximum length for notches (in mm)
+      isInterior: length < 50 || area < 100, // Minimum length for exterior contours (in mm)
       length,
     };
   };
@@ -101,7 +95,7 @@ export function CutRegistration({
       ));
       
       // Keep point if angle is significant
-      if (angle > 0.1 || distance(prev.start, current.start) > CONTOUR_SIMPLIFICATION_THRESHOLD) {
+      if (angle > 0.1 || distance(prev.start, current.start) > 0.5) {
         simplified.push(current);
       }
     }
@@ -131,25 +125,17 @@ export function CutRegistration({
 
     // Second pass: Determine exterior/interior relationships
     return analyzedPaths.map(path => {
-      // A path is considered exterior if:
-      // 1. It's one of the largest paths (by area)
-      // 2. It's not contained within any other path
-      // 3. Its length is above the minimum threshold
       const contourAnalysis = analyzeContour(path.segments);
-      
       let isExterior = !contourAnalysis.isNotch && !contourAnalysis.isInterior;
       
-      // Check if this path is contained within any larger path
       for (const otherPath of analyzedPaths) {
         if (otherPath === path || otherPath.area <= path.area) continue;
         
-        // Check if path's bounding box is completely inside other path's bounding box
         if (path.boundingBox.minX >= otherPath.boundingBox.minX &&
             path.boundingBox.maxX <= otherPath.boundingBox.maxX &&
             path.boundingBox.minY >= otherPath.boundingBox.minY &&
             path.boundingBox.maxY <= otherPath.boundingBox.maxY) {
           
-          // Detailed containment check using point-in-polygon
           const testPoint = path.segments[0].start;
           if (isPointInPolygon(testPoint, otherPath.segments.map(s => s.start))) {
             isExterior = false;
@@ -191,7 +177,7 @@ export function CutRegistration({
 
         pairs.forEach(({ p1, p2 }) => {
           const dist = distance(p1, p2);
-          if (dist > REPAIR_THRESHOLD && dist < minDistance && dist < MAX_REPAIR_DISTANCE) {
+          if (dist > 0.1 && dist < minDistance && dist < 5.0) {
             minDistance = dist;
             closestPair = {
               start: p1,
@@ -212,78 +198,16 @@ export function CutRegistration({
   const isPathClosed = (segments: PathSegment[]): boolean => {
     if (segments.length < 2) return false;
 
-    // Check if any segment endpoints form a closed loop
     for (let i = 0; i < segments.length; i++) {
       const current = segments[i];
       const next = segments[(i + 1) % segments.length];
       
-      if (distance(current.end, next.start) > REPAIR_THRESHOLD) {
+      if (distance(current.end, next.start) > 0.1) {
         return false;
       }
     }
 
     return true;
-  };
-
-  // Enhanced auto-repair with multiple strategies
-  const repairPath = (segments: PathSegment[]): { segments: PathSegment[]; repairs: PathRepair[] } => {
-    const repairs: PathRepair[] = [];
-    let repairedSegments = [...segments];
-
-    // Strategy 1: Connect sequential gaps
-    for (let i = 0; i < repairedSegments.length; i++) {
-      const current = repairedSegments[i];
-      const next = repairedSegments[(i + 1) % repairedSegments.length];
-      const gap = distance(current.end, next.start);
-
-      if (gap > REPAIR_THRESHOLD && gap < MAX_REPAIR_DISTANCE) {
-        repairs.push({
-          start: current.end,
-          end: next.start,
-          distance: gap,
-          type: 'gap',
-        });
-
-        // Add connecting segment
-        repairedSegments.splice(i + 1, 0, {
-          start: current.end,
-          end: next.start,
-          isRepair: true,
-          type: 'exterior', // Assuming repairs are on exterior paths
-        });
-        i++;
-      }
-    }
-
-    // Strategy 2: Fix self-intersections
-    for (let i = 0; i < repairedSegments.length - 1; i++) {
-      for (let j = i + 2; j < repairedSegments.length; j++) {
-        const seg1 = repairedSegments[i];
-        const seg2 = repairedSegments[j];
-        
-        const intersection = findIntersection(seg1, seg2);
-        if (intersection) {
-          repairs.push({
-            start: intersection,
-            end: intersection,
-            distance: 0,
-            type: 'intersection',
-          });
-          
-          // Split segments at intersection
-          repairedSegments.splice(i, 1,
-            { start: seg1.start, end: intersection, isRepair: true, type: 'exterior' },
-            { start: intersection, end: seg1.end, isRepair: true, type: 'exterior' }
-          );
-          repairedSegments.splice(j + 1, 1,
-            { start: seg2.start, end: intersection, isRepair: true, type: 'exterior' },
-            { start: intersection, end: seg2.end, isRepair: true, type: 'exterior' }
-          );
-        }
-      }
-    }
-
-    return { segments: repairedSegments, repairs };
   };
 
   // Find intersection between two line segments
@@ -309,6 +233,65 @@ export function CutRegistration({
     return null;
   };
 
+  // Enhanced auto-repair with multiple strategies
+  const repairPath = (segments: PathSegment[]): { segments: PathSegment[]; repairs: PathRepair[] } => {
+    const repairs: PathRepair[] = [];
+    let repairedSegments = [...segments];
+
+    // Strategy 1: Connect sequential gaps
+    for (let i = 0; i < repairedSegments.length; i++) {
+      const current = repairedSegments[i];
+      const next = repairedSegments[(i + 1) % repairedSegments.length];
+      const gap = distance(current.end, next.start);
+
+      if (gap > 0.1 && gap < 5.0) {
+        repairs.push({
+          start: current.end,
+          end: next.start,
+          distance: gap,
+          type: 'gap',
+        });
+
+        repairedSegments.splice(i + 1, 0, {
+          start: current.end,
+          end: next.start,
+          isRepair: true,
+          type: 'exterior',
+        });
+        i++;
+      }
+    }
+
+    // Strategy 2: Fix self-intersections
+    for (let i = 0; i < repairedSegments.length - 1; i++) {
+      for (let j = i + 2; j < repairedSegments.length; j++) {
+        const seg1 = repairedSegments[i];
+        const seg2 = repairedSegments[j];
+        
+        const intersection = findIntersection(seg1, seg2);
+        if (intersection) {
+          repairs.push({
+            start: intersection,
+            end: intersection,
+            distance: 0,
+            type: 'intersection',
+          });
+          
+          repairedSegments.splice(i, 1,
+            { start: seg1.start, end: intersection, isRepair: true, type: 'exterior' },
+            { start: intersection, end: seg1.end, isRepair: true, type: 'exterior' }
+          );
+          repairedSegments.splice(j + 1, 1,
+            { start: seg2.start, end: intersection, isRepair: true, type: 'exterior' },
+            { start: intersection, end: seg2.end, isRepair: true, type: 'exterior' }
+          );
+        }
+      }
+    }
+
+    return { segments: repairedSegments, repairs };
+  };
+
   // Enhanced vector file processing
   const processVectorFile = async (file: File) => {
     setProcessingStatus({ isProcessing: true, message: 'Processing file...' });
@@ -328,7 +311,6 @@ export function CutRegistration({
           currentSegments = [];
           let points: Point[] = [];
           
-          // Parse coordinates
           while (i < lines.length && lines[i].trim() !== 'SEQEND') {
             const code = lines[i].trim();
             const value = parseFloat(lines[++i]);
@@ -337,26 +319,20 @@ export function CutRegistration({
             if (code === '20' || code === '21') points[points.length - 1].y = value;
           }
 
-          // Create segments from points
           for (let j = 0; j < points.length - 1; j++) {
             currentSegments.push({
               start: points[j],
               end: points[j + 1],
               isRepair: false,
-              type: 'exterior', // Will be updated later
+              type: 'exterior',
             });
           }
 
           if (currentSegments.length > 0) {
-            // Simplify path before repairs
             const simplifiedSegments = simplifyPath(currentSegments);
-            
-            // Analyze and repair path
             const { segments: repairedSegments, repairs } = repairPath(simplifiedSegments);
-            
             const contourAnalysis = analyzeContour(repairedSegments);
             
-            // Only add paths that are potentially meaningful (not tiny artifacts)
             if (!contourAnalysis.isNotch || repairs.length > 0) {
               paths.push({
                 id: `piece-${entityId++}`,
@@ -365,11 +341,10 @@ export function CutRegistration({
                 repairs,
                 status: 'uncut',
                 isExterior: !contourAnalysis.isInterior,
-                boundingBox: { minX: 0, minY: 0, maxX: 0, maxY: 0 }, // Will be updated
-                area: 0, // Will be updated
+                boundingBox: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+                area: 0,
               });
 
-              // Log significant repairs
               repairs.forEach(repair => {
                 repairLog.push(
                   `${repair.type === 'gap' ? 'Closed gap' : 'Fixed intersection'} at ` +
@@ -382,13 +357,10 @@ export function CutRegistration({
         }
       }
 
-      // Analyze geometry to detect exterior/interior paths
       const analyzedPaths = analyzePathGeometry(paths);
-      
-      // Filter out paths that are clearly not part of the garment pieces
       const significantPaths = analyzedPaths.filter(path => {
         const contourAnalysis = analyzeContour(path.segments);
-        return path.isExterior || contourAnalysis.length > MAX_NOTCH_LENGTH;
+        return path.isExterior || contourAnalysis.length > 10;
       });
 
       setVectorPaths(significantPaths);
@@ -427,7 +399,6 @@ export function CutRegistration({
       [path.id]: currentCount > 3 ? 1 : currentCount
     }));
 
-    // Update status based on click count
     let newStatus: 'uncut' | 'cut' | 'defect' = 'uncut';
     if (currentCount === 1) newStatus = 'cut';
     else if (currentCount === 2) newStatus = 'defect';
@@ -453,34 +424,8 @@ export function CutRegistration({
     }
   };
 
-  // Convert vector path to SVG path string
-  const pathToSvgPath = (path: VectorPath): string => {
-    if (path.segments.length === 0) return '';
-    
-    let d = `M ${path.segments[0].start.x} ${path.segments[0].start.y}`;
-    path.segments.forEach(segment => {
-      d += ` L ${segment.end.x} ${segment.end.y}`;
-    });
-    return d + ' Z';
-  };
-
-  // Calculate viewBox from all paths
-  const calculateViewBox = (): string => {
-    if (vectorPaths.length === 0) return '0 0 100 100';
-
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-    vectorPaths.forEach(path => {
-      path.segments.forEach(segment => {
-        minX = Math.min(minX, segment.start.x, segment.end.x);
-        minY = Math.min(minY, segment.start.y, segment.end.y);
-        maxX = Math.max(maxX, segment.start.x, segment.end.x);
-        maxY = Math.max(maxY, segment.start.y, segment.end.y);
-      });
-    });
-
-    const padding = 10;
-    return `${minX - padding} ${minY - padding} ${maxX - minX + 2 * padding} ${maxY - minY + 2 * padding}`;
+  const handlePieceMark = (position: { x: number; y: number }) => {
+    console.log('Piece marked at:', position);
   };
 
   const handleSaveNotes = () => {
@@ -493,20 +438,13 @@ export function CutRegistration({
     }
   };
 
-  // Handle repair action
-  const handleRepair = () => {
-    if (!selectedMaterial?.dxfFile) return;
-    setRepairMode(true);
-    processVectorFile(selectedMaterial.dxfFile);
-  };
-
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Registo de Corte</h2>
         <div className="flex gap-2">
           <button
-            onClick={handleRepair}
+            onClick={() => setRepairMode(!repairMode)}
             className={`px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 flex items-center ${
               repairMode ? 'bg-yellow-700' : ''
             }`}
@@ -577,7 +515,7 @@ export function CutRegistration({
                 ) : processingStatus.message.includes('Error') ? (
                   <AlertTriangle className="h-4 w-4" />
                 ) : (
-                  <Check className="h-4 w-4" />
+                  <Save className="h-4 w-4" />
                 )}
                 <p className="text-sm whitespace-pre-line">{processingStatus.message}</p>
               </div>
@@ -586,83 +524,14 @@ export function CutRegistration({
 
           <div className="border rounded-lg p-4">
             <h3 className="text-lg font-medium mb-4">Pré-visualização do Corte</h3>
-            <div className="relative w-full" style={{ paddingBottom: '75%' }}>
-              {vectorPaths.length > 0 ? (
-                <svg
-                  className="absolute inset-0 w-full h-full border rounded bg-gray-50"
-                  viewBox={calculateViewBox()}
-                  preserveAspectRatio="xMidYMid meet"
-                >
-                  <defs>
-                    <pattern id="hatch" patternUnits="userSpaceOnUse" width="4" height="4">
-                      <path d="M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2" 
-                        style={{ stroke: 'currentColor', strokeWidth: 0.5 }} />
-                    </pattern>
-                  </defs>
-                  {vectorPaths.map((path) => (
-                    <g key={path.id}>
-                      <path
-                        d={pathToSvgPath(path)}
-                        fill={path.status === 'uncut' 
-                          ? 'url(#hatch)' 
-                          : path.status === 'cut' 
-                            ? 'rgba(34, 197, 94, 0.2)' 
-                            : 'rgba(239, 68, 68, 0.2)'}
-                        stroke={path.isExterior 
-                          ? path.status === 'cut' 
-                            ? '#22C55E'
-                            : path.status === 'defect'
-                              ? '#EF4444'
-                              : '#1F2937'
-                          : '#6B7280'}
-                        strokeWidth={path.isExterior ? "2" : "1"}
-                        strokeDasharray={path.isExterior ? "none" : "4,4"}
-                        className={`cursor-pointer transition-all duration-200 hover:opacity-80 ${
-                          path.segments.some(s => s.type === 'notch') ? 'opacity-50' : ''
-                        }`}
-                        onClick={() => handlePieceClick(path)}
-                      />
-                      {showRepairs && path.repairs.map((repair, index) => (
-                        <g key={`repair-${index}`} className="text-yellow-500">
-                          {repair.type === 'gap' ? (
-                            <>
-                              <line
-                                x1={repair.start.x}
-                                y1={repair.start.y}
-                                x2={repair.end.x}
-                                y2={repair.end.y}
-                                strokeWidth="2"
-                                strokeDasharray="4"
-                                className="stroke-current"
-                              />
-                              <circle
-                                cx={repair.start.x}
-                                cy={repair.start.y}
-                                r="2"
-                                className="fill-current"
-                              />
-                              <circle
-                                cx={repair.end.x}
-                                cy={repair.end.y}
-                                r="2"
-                                className="fill-current"
-                              />
-                            </>
-                          ) : (
-                            <circle
-                              cx={repair.start.x}
-                              cy={repair.start.y}
-                              r="3"
-                              className="fill-current"
-                            />
-                          )}
-                        </g>
-                      ))}
-                    </g>
-                  ))}
-                </svg>
+            <div className="relative w-full">
+              {selectedMaterial?.pdfFile ? (
+                <PDFViewer
+                  file={selectedMaterial.pdfFile}
+                  onPieceMark={handlePieceMark}
+                />
               ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-50 rounded border-2 border-dashed border-gray-300">
+                <div className="h-[600px] flex items-center justify-center bg-gray-50 rounded border-2 border-dashed border-gray-300">
                   <p className="text-gray-500">Selecione o corte para ver o plano</p>
                 </div>
               )}
