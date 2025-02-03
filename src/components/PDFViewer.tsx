@@ -9,6 +9,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 interface PDFViewerProps {
   file: File | null;
+  onTextExtracted?: (lines: string[]) => void;
 }
 
 interface MarkedPiece {
@@ -17,13 +18,21 @@ interface MarkedPiece {
   type: "cut" | "defect";
 }
 
-export function PDFViewer({ file }: PDFViewerProps) {
+interface TextItem {
+  text: string;
+  x: number;
+  y: number;
+}
+
+export function PDFViewer({ file, onTextExtracted }: PDFViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [pdfDoc, setPdfDoc] = useState<any | null>(null);
   const [currentPage, setCurrentPage] = useState<any | null>(null);
   const [markedPieces, setMarkedPieces] = useState<MarkedPiece[]>([]);
+  const [scale, setScale] = useState(1);
 
-  // Load PDF document
+  // Load PDF document and extract text
   useEffect(() => {
     if (!file) return;
 
@@ -36,6 +45,34 @@ export function PDFViewer({ file }: PDFViewerProps) {
           setPdfDoc(doc);
           const page = await doc.getPage(1);
           setCurrentPage(page);
+
+          // Extract text content
+          const textContent = await page.getTextContent();
+          const items = textContent.items.map((item: any) => ({
+            text: item.str,
+            x: item.transform[4],
+            y: item.transform[5],
+          }));
+
+          // Group and sort text items
+          const groupedText = items.reduce((acc: { [key: number]: TextItem[] }, item) => {
+            const roundedY = Math.round(item.y / 10) * 10;
+            if (!acc[roundedY]) {
+              acc[roundedY] = [];
+            }
+            acc[roundedY].push(item);
+            return acc;
+          }, {});
+
+          const sortedLines = Object.entries(groupedText)
+            .sort(([y1], [y2]) => Number(y2) - Number(y1))
+            .map(([_, items]) => 
+              items.sort((a, b) => a.x - b.x).map(item => item.text).join(' ')
+            );
+
+          if (onTextExtracted) {
+            onTextExtracted(sortedLines);
+          }
         };
         fileReader.readAsArrayBuffer(file);
       } catch (error) {
@@ -50,7 +87,7 @@ export function PDFViewer({ file }: PDFViewerProps) {
         pdfDoc.destroy();
       }
     };
-  }, [file]);
+  }, [file, onTextExtracted]);
 
   // Render PDF and marks
   useEffect(() => {
@@ -63,17 +100,13 @@ export function PDFViewer({ file }: PDFViewerProps) {
     // Set canvas size to match container
     const container = canvas.parentElement;
     if (container) {
-      const viewport = currentPage.getViewport({ scale: 1 });
-      const containerWidth = container.clientWidth;
-      const scale = containerWidth / viewport.width;
-      
-      const scaledViewport = currentPage.getViewport({ scale });
-      canvas.width = scaledViewport.width;
-      canvas.height = scaledViewport.height;
+      const viewport = currentPage.getViewport({ scale });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
 
       const renderContext = {
         canvasContext: context,
-        viewport: scaledViewport,
+        viewport: viewport,
       };
 
       const renderTask = currentPage.render(renderContext);
@@ -89,7 +122,16 @@ export function PDFViewer({ file }: PDFViewerProps) {
         renderTask.cancel();
       };
     }
-  }, [currentPage, markedPieces]);
+  }, [currentPage, markedPieces, scale]);
+
+  // Handle zoom
+  const handleWheel = (event: React.WheelEvent) => {
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      const delta = event.deltaY > 0 ? -0.1 : 0.1;
+      setScale((prevScale) => Math.max(0.5, Math.min(3, prevScale + delta)));
+    }
+  };
 
   // Draw a marker on the canvas
   const drawMarker = (
@@ -141,13 +183,30 @@ export function PDFViewer({ file }: PDFViewerProps) {
   };
 
   return (
-    <div className="relative border overflow-hidden rounded-lg bg-gray-50">
-      <canvas
-        ref={canvasRef}
-        onClick={handleCanvasClick}
-        onContextMenu={handleCanvasClick}
-        className="cursor-crosshair"
-      />
+    <div className="space-y-4">
+      {/* PDF Preview */}
+      <div 
+        ref={containerRef}
+        className="border rounded-lg overflow-auto bg-gray-50"
+        style={{ maxHeight: '600px' }}
+        onWheel={handleWheel}
+      >
+        <div className="relative min-w-fit">
+          <canvas
+            ref={canvasRef}
+            onClick={handleCanvasClick}
+            onContextMenu={handleCanvasClick}
+            className="cursor-crosshair"
+          />
+        </div>
+      </div>
+
+      {/* Zoom controls */}
+      <div className="flex justify-end gap-2 text-sm text-gray-600">
+        <span>Zoom: {Math.round(scale * 100)}%</span>
+        <span className="text-gray-400">|</span>
+        <span className="italic">Use Ctrl + Mouse Wheel to zoom</span>
+      </div>
     </div>
   );
 }
