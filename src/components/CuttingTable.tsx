@@ -23,6 +23,7 @@ interface MaterialFormData {
   supplier: string;
   color: string;
   width: number;
+  cutRef: string;
   sizes: Record<string, number>;
   dxfFile: File | null;
   pdfFile: File | null;
@@ -40,6 +41,7 @@ export function CuttingTable({
     supplier: '',
     color: '',
     width: 0,
+    cutRef: '',
     sizes: {},
     dxfFile: null,
     pdfFile: null,
@@ -118,6 +120,7 @@ export function CuttingTable({
       supplier: editForm.supplier,
       color: editForm.color,
       width: editForm.width,
+      cutRef: editForm.cutRef,
       dxfFile: editForm.dxfFile,
       pdfFile: editForm.pdfFile,
       sizes: editForm.sizes,
@@ -125,16 +128,15 @@ export function CuttingTable({
     
     onAddMaterial(newMaterialData);
     
-    // Show success feedback
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2000);
 
-    // Reset form fields but keep the form visible and preserve sizes
     setEditForm({
       name: '',
       supplier: '',
       color: '',
       width: 0,
+      cutRef: '',
       sizes: editForm.sizes,
       dxfFile: null,
       pdfFile: null,
@@ -176,6 +178,7 @@ export function CuttingTable({
       supplier: '',
       color: '',
       width: 0,
+      cutRef: '',
       sizes: {},
       dxfFile: null,
       pdfFile: null,
@@ -206,6 +209,9 @@ export function CuttingTable({
           <thead>
             <tr className="bg-gray-50">
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Ref. Corte
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Tecido/Malha
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -231,6 +237,17 @@ export function CuttingTable({
           <tbody className="bg-white divide-y divide-gray-200">
             {newMaterial && !editingId && (
               <tr className="bg-blue-50">
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <input
+                    type="text"
+                    name="cutRef"
+                    value={editForm.cutRef}
+                    onChange={handleInputChange}
+                    placeholder="Ref. Corte"
+                    className="w-full px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <input
                     type="text"
@@ -402,6 +419,20 @@ export function CuttingTable({
             )}
             {materials.map((material, index) => (
               <tr key={index} className={editingId === index ? 'bg-blue-50' : 'hover:bg-gray-50'}>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  {editingId === index ? (
+                    <input
+                      type="text"
+                      name="cutRef"
+                      value={editingMaterial?.cutRef || ''}
+                      onChange={(e) => handleInputChange(e, true)}
+                      className="w-full px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
+                  ) : (
+                    <span className="text-sm text-gray-900">{material.cutRef}</span>
+                  )}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   {editingId === index ? (
                     <input
