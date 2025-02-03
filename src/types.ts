@@ -34,7 +34,6 @@ export interface PathRepair {
   type: 'gap' | 'intersection';
 }
 
-// Update the existing PieceStatus type
 export interface PieceStatus {
   id: string;
   status: 'cut' | 'defect' | 'uncut';
@@ -45,4 +44,44 @@ export interface ContourAnalysis {
   isNotch: boolean;
   isInterior: boolean;
   length: number;
+}
+
+export interface Material {
+  name: string;
+  supplier: string;
+  color: string;
+  width: number;
+  cutRef?: string;
+  dxfFile: File | null;
+  pdfFile: File | null;
+  sizes: Record<string, number>;
+}
+
+export type ServiceType = 
+  | 'ESTAMPARIA'
+  | 'TRANSFER'
+  | 'BORDADO'
+  | 'EMBOSSING'
+  | 'DTG'
+  | 'DTF'
+  | 'PEDRAS'
+  | 'LAVANDARIA'
+  | 'TINGIMENTO'
+  | 'CORTE LASER'
+  | 'COLADOS'
+  | 'OUTROS';
+
+export interface LabelService {
+  type: ServiceType;
+  enabled: boolean;
+  quantity: number;
+}
+
+export interface LabelEntry {
+  cutRef: string;
+  modelRef: string;
+  size: string;
+  quantity: number;
+  services: Record<ServiceType, LabelService>;
+  labelsToPrint: number;
 }
