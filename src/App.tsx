@@ -6,7 +6,7 @@ import { CuttingTable } from './components/CuttingTable';
 import { CutRegistration } from './components/CutRegistration';
 import { LabelPrinting } from './components/LabelPrinting';
 import { Converter } from './components/Converter';
-import type { CutDetails as ICutDetails, Material, PieceStatus } from './types';
+import type { CutDetails as ICutDetails, Material } from './types';
 
 // Sample data
 const sampleCuts: ICutDetails[] = [
@@ -163,7 +163,8 @@ function App() {
               />
               <LabelPrinting
                 modelReference={selectedCut.modelReference}
-                sizes={sizes}
+                sizes={selectedCut.sizes}
+                materials={selectedCut.materials}
               />
             </>
           )}
