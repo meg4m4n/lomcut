@@ -490,5 +490,3 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
     </div>
   );
 }
-
-export { LabelPrinting }
