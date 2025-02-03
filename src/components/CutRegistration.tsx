@@ -1,11 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Scissors, MessageSquare, FileDown, Save, Trash2, HelpCircle } from 'lucide-react';
+import { Scissors, MessageSquare, FileDown, Save, Trash2, HelpCircle, Image } from 'lucide-react';
 import { PDFViewer } from './PDFViewer';
 import type { PieceStatus, Material } from '../types';
 
 interface CutRegistrationProps {
   materials: Material[];
   onUpdatePieceStatus: (pieceId: string, status: PieceStatus) => void;
+}
+
+interface Snapshot {
+  id: string;
+  image: string;
+  timestamp: string;
+  materialName: string;
+  pageNumber: number;
 }
 
 export function CutRegistration({
@@ -17,6 +25,8 @@ export function CutRegistration({
   const [notes, setNotes] = useState<{ id: string; text: string }[]>([]);
   const [newNote, setNewNote] = useState('');
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [showSnapshots, setShowSnapshots] = useState(false);
 
   useEffect(() => {
     // Add default help note if no notes exist
@@ -39,6 +49,24 @@ Dicas:
 
   const handlePieceMark = (position: { x: number; y: number }) => {
     console.log('Piece marked at:', position);
+  };
+
+  const handleSaveSnapshot = (imageData: string, pageNumber: number) => {
+    if (!selectedMaterial) return;
+    
+    const newSnapshot: Snapshot = {
+      id: Date.now().toString(),
+      image: imageData,
+      timestamp: new Date().toLocaleString(),
+      materialName: selectedMaterial.name,
+      pageNumber
+    };
+    
+    setSnapshots(prev => [newSnapshot, ...prev]);
+  };
+
+  const deleteSnapshot = (id: string) => {
+    setSnapshots(prev => prev.filter(snapshot => snapshot.id !== id));
   };
 
   const addNote = () => {
@@ -68,6 +96,17 @@ Dicas:
     <div className="bg-white rounded-lg shadow-md p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Registo de Corte</h2>
+        <button
+          onClick={() => setShowSnapshots(!showSnapshots)}
+          className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+            showSnapshots 
+              ? 'bg-blue-100 text-blue-700 border border-blue-300'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          <Image className="w-5 h-5" />
+          <span>Capturas ({snapshots.length})</span>
+        </button>
       </div>
 
       <div className="space-y-6">
@@ -106,18 +145,55 @@ Dicas:
           )}
         </div>
 
-        <div className="border rounded-lg">
-          {selectedMaterial?.pdfFile ? (
-            <PDFViewer
-              file={selectedMaterial.pdfFile}
-              onPieceMark={handlePieceMark}
-            />
-          ) : (
-            <div className="h-[600px] flex items-center justify-center bg-gray-50 rounded border-2 border-dashed border-gray-300">
-              <p className="text-gray-500">Selecione o corte para ver o plano</p>
-            </div>
-          )}
-        </div>
+        {showSnapshots ? (
+          <div className="grid grid-cols-2 gap-4">
+            {snapshots.map(snapshot => (
+              <div key={snapshot.id} className="border rounded-lg p-4 space-y-2">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="font-medium">{snapshot.materialName}</h4>
+                    <p className="text-sm text-gray-500">
+                      Página {snapshot.pageNumber} • {snapshot.timestamp}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => deleteSnapshot(snapshot.id)}
+                    className="text-red-600 hover:text-red-800 p-1"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                <img 
+                  src={snapshot.image} 
+                  alt={`Captura de ${snapshot.materialName}`}
+                  className="w-full rounded border"
+                />
+              </div>
+            ))}
+            {snapshots.length === 0 && (
+              <div className="col-span-2 text-center py-12 bg-gray-50 rounded-lg">
+                <Image className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-500">Nenhuma captura guardada</p>
+                <p className="text-sm text-gray-400">
+                  Use o botão "Capturar" na visualização do PDF para guardar imagens
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="border rounded-lg">
+            {selectedMaterial?.pdfFile ? (
+              <PDFViewer
+                file={selectedMaterial.pdfFile}
+                onSaveSnapshot={handleSaveSnapshot}
+              />
+            ) : (
+              <div className="h-[600px] flex items-center justify-center bg-gray-50 rounded border-2 border-dashed border-gray-300">
+                <p className="text-gray-500">Selecione o corte para ver o plano</p>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-8">
           <div className="space-y-4">
