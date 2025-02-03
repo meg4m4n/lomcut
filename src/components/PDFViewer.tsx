@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Download } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Camera } from 'lucide-react';
 
 // Load PDF.js from the global window object
 const pdfjsLib = (window as any).pdfjsLib;
@@ -10,76 +10,58 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 interface PDFViewerProps {
   file: File | null;
-  onTextExtracted?: (lines: string[]) => void;
+  onSaveSnapshot?: (snapshot: string) => void;
 }
 
-interface MarkedPiece {
+interface Mark {
   x: number;
   y: number;
   type: "cut" | "defect";
 }
 
-interface TextItem {
-  text: string;
-  x: number;
-  y: number;
-}
-
-export function PDFViewer({ file, onTextExtracted }: PDFViewerProps) {
+export function PDFViewer({ file, onSaveSnapshot }: PDFViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const [pdfDoc, setPdfDoc] = useState<any | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
-  const [markedPieces, setMarkedPieces] = useState<MarkedPiece[]>([]);
+  const [marks, setMarks] = useState<Mark[]>([]);
   const [scale, setScale] = useState(1);
+  const [markType, setMarkType] = useState<"cut" | "defect">("cut");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Load PDF document and extract text
+  // Load PDF document
   useEffect(() => {
     if (!file) return;
 
     const loadPDF = async () => {
+      setIsLoading(true);
+      setError(null);
       try {
         const fileReader = new FileReader();
         fileReader.onload = async function () {
-          const typedarray = new Uint8Array(this.result as ArrayBuffer);
-          const doc = await pdfjsLib.getDocument({ data: typedarray }).promise;
-          setPdfDoc(doc);
-          setTotalPages(doc.numPages);
-          const page = await doc.getPage(1);
-          renderPage(page);
-
-          // Extract text content
-          const textContent = await page.getTextContent();
-          const items = textContent.items.map((item: any) => ({
-            text: item.str,
-            x: item.transform[4],
-            y: item.transform[5],
-          }));
-
-          // Group and sort text items
-          const groupedText = items.reduce((acc: { [key: number]: TextItem[] }, item) => {
-            const roundedY = Math.round(item.y / 10) * 10;
-            if (!acc[roundedY]) {
-              acc[roundedY] = [];
-            }
-            acc[roundedY].push(item);
-            return acc;
-          }, {});
-
-          const sortedLines = Object.entries(groupedText)
-            .sort(([y1], [y2]) => Number(y2) - Number(y1))
-            .map(([_, items]) => 
-              items.sort((a, b) => a.x - b.x).map(item => item.text).join(' ')
-            );
-
-          if (onTextExtracted) {
-            onTextExtracted(sortedLines);
+          try {
+            const typedarray = new Uint8Array(this.result as ArrayBuffer);
+            const loadingTask = pdfjsLib.getDocument({ data: typedarray });
+            const doc = await loadingTask.promise;
+            setPdfDoc(doc);
+            setTotalPages(doc.numPages);
+            const page = await doc.getPage(1);
+            await renderPage(page);
+          } catch (err) {
+            console.error("Error loading PDF content:", err);
+            setError("Erro ao carregar o PDF. Por favor, tente novamente.");
           }
         };
+        fileReader.onerror = () => {
+          setError("Erro ao ler o arquivo. Por favor, tente novamente.");
+        };
         fileReader.readAsArrayBuffer(file);
-      } catch (error) {
-        console.error("Error loading PDF:", error);
+      } catch (err) {
+        console.error("Error in loadPDF:", err);
+        setError("Erro ao processar o arquivo. Por favor, tente novamente.");
+      } finally {
+        setIsLoading(false);
       }
     };
 
@@ -87,10 +69,10 @@ export function PDFViewer({ file, onTextExtracted }: PDFViewerProps) {
 
     return () => {
       if (pdfDoc) {
-        pdfDoc.destroy();
+        pdfDoc.destroy().catch(console.error);
       }
     };
-  }, [file, onTextExtracted]);
+  }, [file]);
 
   const renderPage = async (page: any) => {
     if (!canvasRef.current) return;
@@ -99,170 +81,238 @@ export function PDFViewer({ file, onTextExtracted }: PDFViewerProps) {
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    const viewport = page.getViewport({ scale });
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-
-    const renderContext = {
-      canvasContext: context,
-      viewport: viewport,
-    };
-
     try {
+      const viewport = page.getViewport({ scale });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      const renderContext = {
+        canvasContext: context,
+        viewport: viewport,
+      };
+
       await page.render(renderContext).promise;
+      
       // Draw marks after PDF renders
-      markedPieces.forEach((piece) => {
-        drawMarker(context, piece.x, piece.y, piece.type);
+      marks.forEach((mark) => {
+        drawMark(context, mark.x, mark.y, mark.type);
       });
-    } catch (error) {
-      console.error("Error rendering page:", error);
+    } catch (err) {
+      console.error("Error in renderPage:", err);
+      setError("Erro ao renderizar a página. Por favor, tente novamente.");
     }
   };
 
-  // Change page
-  const changePage = async (newPage: number) => {
+  const changePage = async (delta: number) => {
+    const newPage = currentPage + delta;
     if (!pdfDoc || newPage < 1 || newPage > totalPages) return;
 
+    setIsLoading(true);
+    setError(null);
     try {
       const page = await pdfDoc.getPage(newPage);
       setCurrentPage(newPage);
-      renderPage(page);
-    } catch (error) {
-      console.error("Error changing page:", error);
+      setMarks([]); // Clear marks when changing pages
+      await renderPage(page);
+    } catch (err) {
+      console.error("Error changing page:", err);
+      setError("Erro ao mudar de página. Por favor, tente novamente.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Handle zoom
-  const handleWheel = (event: React.WheelEvent) => {
+  const handleWheel = async (event: React.WheelEvent) => {
     if (event.ctrlKey || event.metaKey) {
       event.preventDefault();
       const delta = event.deltaY > 0 ? -0.1 : 0.1;
-      setScale((prevScale) => {
-        const newScale = Math.max(0.5, Math.min(3, prevScale + delta));
-        if (pdfDoc) {
-          pdfDoc.getPage(currentPage).then((page: any) => renderPage(page));
+      const newScale = Math.max(0.5, Math.min(3, scale + delta));
+      setScale(newScale);
+
+      if (pdfDoc) {
+        try {
+          const page = await pdfDoc.getPage(currentPage);
+          await renderPage(page);
+        } catch (err) {
+          console.error("Error updating zoom:", err);
+          setError("Erro ao ajustar o zoom. Por favor, tente novamente.");
         }
-        return newScale;
-      });
+      }
     }
   };
 
-  // Draw a marker on the canvas
-  const drawMarker = (
+  const drawMark = (
     context: CanvasRenderingContext2D,
     x: number,
     y: number,
     type: "cut" | "defect"
   ) => {
+    const size = 15;
     context.save();
-    context.beginPath();
-    context.arc(x, y, 6, 0, 2 * Math.PI);
-    context.fillStyle = type === "cut" ? "rgba(34, 197, 94, 0.8)" : "rgba(220, 38, 38, 0.8)";
-    context.fill();
-    context.strokeStyle = type === "cut" ? "#22C55E" : "#DC2626";
-    context.lineWidth = 2;
-    context.stroke();
+    
+    if (type === "cut") {
+      // Checkmark for cut
+      context.strokeStyle = "#22c55e";
+      context.lineWidth = 3;
+      context.beginPath();
+      context.moveTo(x - size/2, y);
+      context.lineTo(x - size/6, y + size/2);
+      context.lineTo(x + size/2, y - size/2);
+      context.stroke();
+    } else {
+      // X mark for defect
+      context.strokeStyle = "#ef4444";
+      context.lineWidth = 3;
+      context.beginPath();
+      context.moveTo(x - size/2, y - size/2);
+      context.lineTo(x + size/2, y + size/2);
+      context.moveTo(x + size/2, y - size/2);
+      context.lineTo(x - size/2, y + size/2);
+      context.stroke();
+    }
+    
     context.restore();
   };
 
-  // Handle mouse click for marking
-  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    event.preventDefault();
-    if (!canvasRef.current) return;
+  const handleCanvasClick = async (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!canvasRef.current || !pdfDoc) return;
 
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
-    // Check if clicking near an existing mark
-    const threshold = 10;
-    const existingIndex = markedPieces.findIndex(
-      (piece) =>
-        Math.abs(piece.x - x) < threshold && Math.abs(piece.y - y) < threshold
+    // Check if clicking near an existing mark to remove it
+    const threshold = 15;
+    const existingMarkIndex = marks.findIndex(
+      (mark) => Math.abs(mark.x - x) < threshold && Math.abs(mark.y - y) < threshold
     );
 
-    if (existingIndex !== -1) {
-      // Remove the mark if it exists
-      setMarkedPieces((prev) => prev.filter((_, i) => i !== existingIndex));
+    if (existingMarkIndex !== -1) {
+      // Remove the mark
+      const newMarks = marks.filter((_, i) => i !== existingMarkIndex);
+      setMarks(newMarks);
+      
+      // Redraw the page and remaining marks
+      try {
+        const page = await pdfDoc.getPage(currentPage);
+        await renderPage(page);
+      } catch (err) {
+        console.error("Error redrawing page:", err);
+        setError("Erro ao atualizar as marcações. Por favor, tente novamente.");
+      }
     } else {
       // Add new mark
-      const newMark = {
-        x,
-        y,
-        type: event.button === 2 ? "defect" : "cut",
-      };
-      setMarkedPieces((prev) => [...prev, newMark]);
+      const newMark = { x, y, type: markType };
+      setMarks(prev => [...prev, newMark]);
+      
+      // Draw the new mark
+      const context = canvas.getContext("2d");
+      if (context) {
+        drawMark(context, x, y, markType);
+      }
     }
   };
 
-  // Save canvas as image
-  const saveCanvasAsImage = () => {
-    if (!canvasRef.current || !file) return;
-
-    const canvas = canvasRef.current;
-    const link = document.createElement('a');
-    
-    // Get file name without extension
-    const fileName = file.name.replace(/\.[^/.]+$/, "");
-    
-    link.download = `${fileName}-page${currentPage}-marked.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
+  const takeSnapshot = () => {
+    if (!canvasRef.current || !onSaveSnapshot) return;
+    try {
+      const dataUrl = canvasRef.current.toDataURL('image/png');
+      onSaveSnapshot(dataUrl);
+    } catch (err) {
+      console.error("Error taking snapshot:", err);
+      setError("Erro ao capturar imagem. Por favor, tente novamente.");
+    }
   };
+
+  if (!file) {
+    return (
+      <div className="h-[600px] flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+        <p className="text-gray-500">Selecione um arquivo PDF para visualizar</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      {/* PDF Preview */}
-      <div 
-        ref={containerRef}
-        className="border rounded-lg overflow-auto bg-gray-50"
-        style={{ maxHeight: '600px' }}
-        onWheel={handleWheel}
-      >
-        <div className="relative min-w-fit">
-          <canvas
-            ref={canvasRef}
-            onClick={handleCanvasClick}
-            onContextMenu={handleCanvasClick}
-            className="cursor-crosshair"
-          />
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setMarkType("cut")}
+            className={`px-3 py-1 rounded-lg flex items-center gap-1 ${
+              markType === "cut"
+                ? "bg-green-100 text-green-700 border border-green-300"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            ✓ Corte
+          </button>
+          <button
+            onClick={() => setMarkType("defect")}
+            className={`px-3 py-1 rounded-lg flex items-center gap-1 ${
+              markType === "defect"
+                ? "bg-red-100 text-red-700 border border-red-300"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            ✕ Defeito
+          </button>
         </div>
+        {onSaveSnapshot && (
+          <button
+            onClick={takeSnapshot}
+            className="flex items-center gap-2 px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Camera className="w-4 h-4" />
+            <span>Capturar</span>
+          </button>
+        )}
       </div>
 
-      {/* Page navigation and zoom controls */}
-      <div className="flex justify-between items-center">
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          {error}
+        </div>
+      )}
+
+      <div 
+        className="border rounded-lg overflow-hidden bg-gray-50 relative"
+        onWheel={handleWheel}
+      >
+        {isLoading && (
+          <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          </div>
+        )}
+        <canvas
+          ref={canvasRef}
+          onClick={handleCanvasClick}
+          className="cursor-crosshair mx-auto"
+        />
+      </div>
+
+      <div className="flex items-center justify-between px-4">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => changePage(currentPage - 1)}
-            disabled={currentPage <= 1}
-            className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            onClick={() => changePage(-1)}
+            disabled={currentPage <= 1 || isLoading}
+            className="p-1 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent"
           >
-            Anterior
+            <ChevronLeft className="w-5 h-5" />
           </button>
           <span className="text-sm">
             Página {currentPage} de {totalPages}
           </span>
           <button
-            onClick={() => changePage(currentPage + 1)}
-            disabled={currentPage >= totalPages}
-            className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            onClick={() => changePage(1)}
+            disabled={currentPage >= totalPages || isLoading}
+            className="p-1 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent"
           >
-            Próxima
-          </button>
-          <button
-            onClick={saveCanvasAsImage}
-            className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-2"
-            title="Guardar página atual como imagem"
-          >
-            <Download className="h-4 w-4" />
-            <span>Guardar Imagem</span>
+            <ChevronRight className="w-5 h-5" />
           </button>
         </div>
-        <div className="flex gap-2 text-sm text-gray-600">
-          <span>Zoom: {Math.round(scale * 100)}%</span>
-          <span className="text-gray-400">|</span>
-          <span className="italic">Use Ctrl + Mouse Wheel para zoom</span>
+        <div className="text-sm text-gray-500">
+          Zoom: {Math.round(scale * 100)}% (Ctrl + Scroll)
         </div>
       </div>
     </div>
