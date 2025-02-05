@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Printer, Settings, X, Plus, Minus, Check, List } from 'lucide-react';
+import { Printer, Settings, X, Plus, Minus, Check } from 'lucide-react';
 import type { LabelEntry, ServiceType, LabelService, Material } from '../types';
 
 const SERVICES: ServiceType[] = [
@@ -43,8 +43,8 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
   });
   const [selectedEntry, setSelectedEntry] = useState<LabelEntry | null>(null);
   const [labelEntries, setLabelEntries] = useState<LabelEntry[]>([]);
-  const [editingQuantity, setEditingQuantity] = useState<{index: number, value: string} | null>(null);
-  const [showServices, setShowServices] = useState(false);
+  const [showServiceSelector, setShowServiceSelector] = useState(false);
+  const [editingServices, setEditingServices] = useState<number | null>(null);
 
   // Initialize label entries from materials and sizes
   React.useEffect(() => {
@@ -229,13 +229,6 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
             <Settings className="h-5 w-5 text-gray-600" />
           </button>
           <button
-            onClick={() => setShowServices(!showServices)}
-            className={`p-2 rounded-lg ${showServices ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100 text-gray-600'}`}
-            title="Mostrar/Esconder Serviços"
-          >
-            <List className="h-5 w-5" />
-          </button>
-          <button
             onClick={handlePrint}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
           >
@@ -266,6 +259,9 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Etiquetas
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Serviços
                   </th>
                 </tr>
               </thead>
@@ -335,30 +331,67 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
                         </button>
                       </div>
                     </td>
+                    <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                      <div className="space-y-1">
+                        {Object.values(entry.services)
+                          .filter(service => service.enabled)
+                          .map((service, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <span className="text-sm">{service.type}</span>
+                              <span className="text-sm text-gray-500">({service.quantity})</span>
+                            </div>
+                          ))
+                        }
+                        <button
+                          onClick={() => {
+                            setEditingServices(index);
+                            setSelectedEntry(entry);
+                            setShowServiceSelector(true);
+                          }}
+                          className="text-sm text-blue-600 hover:text-blue-800"
+                        >
+                          {Object.values(entry.services).some(s => s.enabled) 
+                            ? 'Editar serviços'
+                            : 'Adicionar serviços'
+                          }
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          {showServices && selectedEntry && (
-            <div className="border rounded-lg p-4">
-              <h4 className="font-medium mb-3">Serviços para {selectedEntry.size}</h4>
-              <div className="grid grid-cols-2 gap-4">
+          {showServiceSelector && selectedEntry && (
+            <div className="border rounded-lg p-4 bg-gray-50">
+              <div className="flex justify-between items-center mb-4">
+                <h4 className="font-medium">Serviços para {selectedEntry.size}</h4>
+                <button
+                  onClick={() => {
+                    setShowServiceSelector(false);
+                    setEditingServices(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
                 {SERVICES.map((service) => {
                   const serviceData = selectedEntry.services[service];
                   return (
                     <div 
                       key={service}
-                      className={`p-3 border rounded-lg ${
-                        serviceData.enabled ? 'bg-blue-50 border-blue-200' : ''
+                      className={`p-3 border rounded-lg bg-white ${
+                        serviceData.enabled ? 'border-blue-200' : ''
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => toggleService(
-                              labelEntries.indexOf(selectedEntry),
+                              editingServices!,
                               service
                             )}
                             className={`p-1 rounded ${
@@ -376,7 +409,7 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
                             type="number"
                             value={serviceData.quantity}
                             onChange={(e) => updateServiceQuantity(
-                              labelEntries.indexOf(selectedEntry),
+                              editingServices!,
                               service,
                               parseInt(e.target.value) || 0
                             )}
