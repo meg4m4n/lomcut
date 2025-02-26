@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Printer, Settings, X, Plus, Minus, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Printer, Settings, X, Plus, Minus, Check, List } from 'lucide-react';
 import type { LabelEntry, ServiceType, LabelService, Material } from '../types';
 
 const SERVICES: ServiceType[] = [
@@ -37,17 +37,15 @@ const createEmptyServices = (): Record<ServiceType, LabelService> => {
 export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintingProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [labelSettings, setLabelSettings] = useState({
-    barcodeType: 'Code128',
     dpi: 96,
     copies: 1
   });
   const [selectedEntry, setSelectedEntry] = useState<LabelEntry | null>(null);
   const [labelEntries, setLabelEntries] = useState<LabelEntry[]>([]);
-  const [showServiceSelector, setShowServiceSelector] = useState(false);
-  const [editingServices, setEditingServices] = useState<number | null>(null);
+  const [editingQuantity, setEditingQuantity] = useState<{index: number, value: string} | null>(null);
+  const [showServices, setShowServices] = useState(false);
 
-  // Initialize label entries from materials and sizes
-  React.useEffect(() => {
+  useEffect(() => {
     const entries: LabelEntry[] = [];
     
     materials.forEach(material => {
@@ -109,14 +107,26 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
               font-size: 8pt;
             }
             .label p {
-              margin: 0 0 1mm 0;
+              margin: 0;
+              line-height: 1.2;
             }
-            .label .title {
-              font-weight: bold;
+            .label .info-line {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 0.5mm;
             }
-            .label .barcode {
+            .label .info-line span {
+              font-weight: normal;
+            }
+            .label .services {
               margin-top: 2mm;
-              width: 100%;
+              border-top: 0.5px solid #ccc;
+              padding-top: 1mm;
+            }
+            .label .service-line {
+              font-size: 7pt;
+              color: #666;
+              margin-bottom: 0.5mm;
             }
             @media print {
               .label {
@@ -128,19 +138,22 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
         <body>
           ${labelsToPrint.map(entry => `
             <div class="label">
-              <p class="title">${entry.modelRef}</p>
-              <p>Ref. Corte: ${entry.cutRef}</p>
-              <p>Tamanho: ${entry.size}</p>
+              <p style="font-weight: bold; margin-bottom: 1mm;">${entry.modelRef}</p>
+              <div class="info-line">
+                <span>Ref:</span>
+                <span>${entry.cutRef}</span>
+              </div>
+              <div class="info-line">
+                <span>Tam:</span>
+                <span>${entry.size}</span>
+              </div>
               ${Object.values(entry.services)
                 .filter(service => service.enabled)
                 .map(service => `
-                  <p>${service.type} (${service.quantity})</p>
+                  <div class="service-line">
+                    ${service.type} - ${service.quantity} un.
+                  </div>
                 `).join('')}
-              <img 
-                class="barcode"
-                src="https://barcode.tec-it.com/barcode.ashx?data=${entry.cutRef}&code=${labelSettings.barcodeType}&dpi=${labelSettings.dpi}"
-                alt="Barcode"
-              />
             </div>
           `).join('')}
         </body>
@@ -240,7 +253,22 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
 
       <div className="grid grid-cols-2 gap-6">
         <div className="space-y-4">
-          <h3 className="text-lg font-medium">Lista de Etiquetas</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-medium">Lista de Etiquetas</h3>
+            <button
+              onClick={() => setShowServices(!showServices)}
+              className={`p-2 rounded-lg flex items-center gap-2 ${
+                showServices ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100 text-gray-600'
+              }`}
+              title="Mostrar/Esconder Serviços"
+            >
+              <List className="h-5 w-5" />
+              <span className="text-sm">
+                {showServices ? 'Esconder Serviços' : 'Mostrar Serviços'}
+              </span>
+            </button>
+          </div>
+
           <div className="border rounded-lg overflow-hidden">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -259,9 +287,6 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Etiquetas
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Serviços
                   </th>
                 </tr>
               </thead>
@@ -331,67 +356,30 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
                         </button>
                       </div>
                     </td>
-                    <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                      <div className="space-y-1">
-                        {Object.values(entry.services)
-                          .filter(service => service.enabled)
-                          .map((service, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <span className="text-sm">{service.type}</span>
-                              <span className="text-sm text-gray-500">({service.quantity})</span>
-                            </div>
-                          ))
-                        }
-                        <button
-                          onClick={() => {
-                            setEditingServices(index);
-                            setSelectedEntry(entry);
-                            setShowServiceSelector(true);
-                          }}
-                          className="text-sm text-blue-600 hover:text-blue-800"
-                        >
-                          {Object.values(entry.services).some(s => s.enabled) 
-                            ? 'Editar serviços'
-                            : 'Adicionar serviços'
-                          }
-                        </button>
-                      </div>
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          {showServiceSelector && selectedEntry && (
-            <div className="border rounded-lg p-4 bg-gray-50">
-              <div className="flex justify-between items-center mb-4">
-                <h4 className="font-medium">Serviços para {selectedEntry.size}</h4>
-                <button
-                  onClick={() => {
-                    setShowServiceSelector(false);
-                    setEditingServices(null);
-                  }}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
+          {showServices && selectedEntry && (
+            <div className="border rounded-lg p-4">
+              <h4 className="font-medium mb-3">Serviços para {selectedEntry.size}</h4>
+              <div className="grid grid-cols-2 gap-4">
                 {SERVICES.map((service) => {
                   const serviceData = selectedEntry.services[service];
                   return (
                     <div 
                       key={service}
-                      className={`p-3 border rounded-lg bg-white ${
-                        serviceData.enabled ? 'border-blue-200' : ''
+                      className={`p-3 border rounded-lg ${
+                        serviceData.enabled ? 'bg-blue-50 border-blue-200' : ''
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => toggleService(
-                              editingServices!,
+                              labelEntries.indexOf(selectedEntry),
                               service
                             )}
                             className={`p-1 rounded ${
@@ -409,7 +397,7 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
                             type="number"
                             value={serviceData.quantity}
                             onChange={(e) => updateServiceQuantity(
-                              editingServices!,
+                              labelEntries.indexOf(selectedEntry),
                               service,
                               parseInt(e.target.value) || 0
                             )}
@@ -433,23 +421,22 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
               <div className="w-[25mm] h-[52mm] border-2 border-dashed border-gray-300 p-2 scale-[2] origin-top-left">
                 <div className="text-[8pt] space-y-1">
                   <p className="font-bold">{selectedEntry.modelRef}</p>
-                  <p className="text-xs">Ref. Corte: {selectedEntry.cutRef}</p>
-                  <p className="text-xs">Tamanho: {selectedEntry.size}</p>
+                  <div className="flex justify-between">
+                    <span>Ref:</span>
+                    <span>{selectedEntry.cutRef}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Tam:</span>
+                    <span>{selectedEntry.size}</span>
+                  </div>
                   {Object.values(selectedEntry.services)
                     .filter(service => service.enabled)
                     .map((service, index) => (
-                      <p key={index} className="text-xs truncate">
-                        {service.type} ({service.quantity})
-                      </p>
+                      <div key={index} className="text-[7pt] text-gray-600">
+                        {service.type} - {service.quantity} un.
+                      </div>
                     ))
                   }
-                  <div className="mt-2">
-                    <img
-                      src={`https://barcode.tec-it.com/barcode.ashx?data=${selectedEntry.cutRef}&code=${labelSettings.barcodeType}&dpi=${labelSettings.dpi}`}
-                      alt="Barcode"
-                      className="w-full"
-                    />
-                  </div>
                 </div>
               </div>
             ) : (
@@ -474,24 +461,6 @@ export function LabelPrinting({ modelReference, sizes, materials }: LabelPrintin
               </button>
             </div>
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">
-                  Tipo de Código de Barras
-                </label>
-                <select
-                  name="barcodeType"
-                  value={labelSettings.barcodeType}
-                  onChange={handleSettingsChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                >
-                  <option value="Code128">Code 128</option>
-                  <option value="Code39">Code 39</option>
-                  <option value="EAN13">EAN 13</option>
-                  <option value="EAN8">EAN 8</option>
-                  <option value="UPCA">UPC-A</option>
-                  <option value="UPCE">UPC-E</option>
-                </select>
-              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">
                   DPI

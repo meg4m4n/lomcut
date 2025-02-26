@@ -10,7 +10,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 interface PDFViewerProps {
   file: File | null;
-  onSaveSnapshot?: (snapshot: string) => void;
+  onSaveSnapshot?: (snapshot: string, pageNumber: number) => void;
 }
 
 interface Mark {
@@ -37,29 +37,27 @@ export function PDFViewer({ file, onSaveSnapshot }: PDFViewerProps) {
     const loadPDF = async () => {
       setIsLoading(true);
       setError(null);
+
       try {
-        const fileReader = new FileReader();
-        fileReader.onload = async function () {
-          try {
-            const typedarray = new Uint8Array(this.result as ArrayBuffer);
-            const loadingTask = pdfjsLib.getDocument({ data: typedarray });
-            const doc = await loadingTask.promise;
-            setPdfDoc(doc);
-            setTotalPages(doc.numPages);
-            const page = await doc.getPage(1);
-            await renderPage(page);
-          } catch (err) {
-            console.error("Error loading PDF content:", err);
-            setError("Erro ao carregar o PDF. Por favor, tente novamente.");
-          }
-        };
-        fileReader.onerror = () => {
-          setError("Erro ao ler o arquivo. Por favor, tente novamente.");
-        };
-        fileReader.readAsArrayBuffer(file);
+        // First check if the file is actually a PDF
+        if (!file.type.includes('pdf')) {
+          throw new Error('O arquivo selecionado não é um PDF válido.');
+        }
+
+        const arrayBuffer = await file.arrayBuffer();
+        const typedarray = new Uint8Array(arrayBuffer);
+        
+        const loadingTask = pdfjsLib.getDocument({ data: typedarray });
+        
+        const doc = await loadingTask.promise;
+        setPdfDoc(doc);
+        setTotalPages(doc.numPages);
+        
+        const page = await doc.getPage(1);
+        await renderPage(page);
       } catch (err) {
-        console.error("Error in loadPDF:", err);
-        setError("Erro ao processar o arquivo. Por favor, tente novamente.");
+        console.error("Error loading PDF:", err);
+        setError(err instanceof Error ? err.message : 'Erro ao carregar o PDF. Por favor, tente novamente.');
       } finally {
         setIsLoading(false);
       }
@@ -98,8 +96,8 @@ export function PDFViewer({ file, onSaveSnapshot }: PDFViewerProps) {
         drawMark(context, mark.x, mark.y, mark.type);
       });
     } catch (err) {
-      console.error("Error in renderPage:", err);
-      setError("Erro ao renderizar a página. Por favor, tente novamente.");
+      console.error("Error rendering PDF page:", err);
+      setError('Erro ao renderizar a página. Por favor, tente novamente.');
     }
   };
 
@@ -116,7 +114,7 @@ export function PDFViewer({ file, onSaveSnapshot }: PDFViewerProps) {
       await renderPage(page);
     } catch (err) {
       console.error("Error changing page:", err);
-      setError("Erro ao mudar de página. Por favor, tente novamente.");
+      setError('Erro ao mudar de página. Por favor, tente novamente.');
     } finally {
       setIsLoading(false);
     }
@@ -127,15 +125,18 @@ export function PDFViewer({ file, onSaveSnapshot }: PDFViewerProps) {
       event.preventDefault();
       const delta = event.deltaY > 0 ? -0.1 : 0.1;
       const newScale = Math.max(0.5, Math.min(3, scale + delta));
-      setScale(newScale);
-
-      if (pdfDoc) {
-        try {
-          const page = await pdfDoc.getPage(currentPage);
-          await renderPage(page);
-        } catch (err) {
-          console.error("Error updating zoom:", err);
-          setError("Erro ao ajustar o zoom. Por favor, tente novamente.");
+      
+      if (newScale !== scale) {
+        setScale(newScale);
+        
+        if (pdfDoc) {
+          try {
+            const page = await pdfDoc.getPage(currentPage);
+            await renderPage(page);
+          } catch (err) {
+            console.error("Error updating zoom:", err);
+            setError('Erro ao ajustar o zoom. Por favor, tente novamente.');
+          }
         }
       }
     }
@@ -199,7 +200,7 @@ export function PDFViewer({ file, onSaveSnapshot }: PDFViewerProps) {
         await renderPage(page);
       } catch (err) {
         console.error("Error redrawing page:", err);
-        setError("Erro ao atualizar as marcações. Por favor, tente novamente.");
+        setError('Erro ao atualizar as marcações. Por favor, tente novamente.');
       }
     } else {
       // Add new mark
@@ -218,10 +219,10 @@ export function PDFViewer({ file, onSaveSnapshot }: PDFViewerProps) {
     if (!canvasRef.current || !onSaveSnapshot) return;
     try {
       const dataUrl = canvasRef.current.toDataURL('image/png');
-      onSaveSnapshot(dataUrl);
+      onSaveSnapshot(dataUrl, currentPage);
     } catch (err) {
       console.error("Error taking snapshot:", err);
-      setError("Erro ao capturar imagem. Por favor, tente novamente.");
+      setError('Erro ao capturar imagem. Por favor, tente novamente.');
     }
   };
 
